@@ -27,6 +27,12 @@ partial class {{ClassName}}
         get => _{{Field}}.PauseEvents;
         set => _{{Field}}.PauseEvents = value;
     }
+{{~ if ValueIsResource || ValueIsResourceArray ~}}
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private void __OnNotify{{Name}}NestedChanged()
+        => _{{Field}}.OnNestedChanged();
+{{~ end ~}}
 {{~ if Modifiers | string.contains "partial" ~}}
 
     {{Modifiers}} {{Type}} {{Name}}
@@ -47,6 +53,7 @@ partial class {{ClassName}}
         public event Action? Changed;
         public event Action? Changing;
         private readonly {{ClassName}} gdObj;
+        private Action? _nestedChanged;
 
         public bool PauseEvents { get; set; }
 
@@ -68,25 +75,32 @@ partial class {{ClassName}}
             {
                 foreach (var _v in _value)
                 {
-                    if (_v?.IsConnected(Resource.SignalName.Changed, Callable.From(OnDataChanged)) ?? false)
-                        _v.Changed -= OnDataChanged;
+                    if (_v?.IsConnected(Resource.SignalName.Changed, Callable.From((Action)gdObj.__OnNotify{{Name}}NestedChanged)) ?? false)
+                        _v.Changed -= gdObj.__OnNotify{{Name}}NestedChanged;
                 }
             }
 
             if (value is not null)
             {
                 for (var i = 0; i < value.Length; ++i)
-                    (value[i] ??= new()).Changed += OnDataChanged;;
+                {
+                    var _v = value[i] ??= new();
+                    if (!_v.IsConnected(Resource.SignalName.Changed, Callable.From((Action)gdObj.__OnNotify{{Name}}NestedChanged)))
+                        _v.Changed += gdObj.__OnNotify{{Name}}NestedChanged;
+                }
             }
 {{~ else if ValueIsResource ~}}
 
-            if (_value?.IsConnected(Resource.SignalName.Changed, Callable.From(OnDataChanged)) ?? false) _value.Changed -= OnDataChanged;
-            if (value is not null) value.Changed += OnDataChanged;
+            if (_value?.IsConnected(Resource.SignalName.Changed, Callable.From((Action)gdObj.__OnNotify{{Name}}NestedChanged)) ?? false)
+                _value.Changed -= gdObj.__OnNotify{{Name}}NestedChanged;
+            if (value is not null && !value.IsConnected(Resource.SignalName.Changed, Callable.From((Action)gdObj.__OnNotify{{Name}}NestedChanged)))
+                value.Changed += gdObj.__OnNotify{{Name}}NestedChanged;
 {{~ end ~}}
 
+            _nestedChanged = changed;
             OnDataChanging();
             _value = value!;
-            OnDataChanged();
+            OnNestedChanged();
 
             void OnDataChanging()
             {
@@ -94,18 +108,18 @@ partial class {{ClassName}}
                 Changing?.Invoke();
                 gdObj.{{Name}}Changing?.Invoke();
             }
+        }
 
-            void OnDataChanged()
-            {
-                if (PauseEvents) return;
+        public void OnNestedChanged()
+        {
+            if (PauseEvents) return;
 
-                changed?.Invoke();
-                Changed?.Invoke();
+            _nestedChanged?.Invoke();
+            Changed?.Invoke();
 {{~ if ClassIsResource ~}}
-                gdObj.EmitSignal("changed");
+            gdObj.EmitSignal("changed");
 {{~ end ~}}
-                gdObj.{{Name}}Changed?.Invoke();
-            }
+            gdObj.{{Name}}Changed?.Invoke();
         }
     }
 }
